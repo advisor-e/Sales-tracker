@@ -1,0 +1,19 @@
+# Python virtual environment
+.venv/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+
+# Build outputs
+build/
+dist/
+
+# Local backups and runtime state
+backups/
+ui_state.json
+app_config.json
+
+# Local workbook data
+*.xlsx
+*.xlsm
