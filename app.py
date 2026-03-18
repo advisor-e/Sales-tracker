@@ -26,6 +26,38 @@ try:
 except Exception:
     get_script_run_ctx = None
 
+try:
+    from openai import OpenAI as _OpenAI
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OpenAI = None  # type: ignore[assignment,misc]
+    _OPENAI_AVAILABLE = False
+
+
+def _get_openai_key() -> str | None:
+    """Return an OpenAI API key from secrets, env, or session state — in that order."""
+    try:
+        key = st.secrets.get("OPENAI_API_KEY") or st.secrets.get("openai_api_key")
+        if key:
+            return str(key).strip()
+    except Exception:
+        pass
+    key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if key:
+        return key
+    key = str(st.session_state.get("openai_api_key", "")).strip()
+    return key or None
+
+
+def _openai_client():
+    """Return an OpenAI client if configured, else None."""
+    if not _OPENAI_AVAILABLE:
+        return None
+    key = _get_openai_key()
+    if not key:
+        return None
+    return _OpenAI(api_key=key)
+
 
 def has_streamlit_context() -> bool:
     return bool(get_script_run_ctx and get_script_run_ctx() is not None)
@@ -2187,7 +2219,103 @@ def charts(filtered_sales: pd.DataFrame, coi_df: pd.DataFrame) -> None:
             st.plotly_chart(fig_coi_industry, use_container_width=True)
 
 
+def _build_blog_draft_llm(
+    topic: str,
+    audience: str,
+    objective: str,
+    tone: str,
+    length: str,
+    principles: list[dict[str, object]],
+    cta: str,
+    word_range: tuple[int, int] | None = None,
+) -> str | None:
+    """Generate a blog draft outline using OpenAI. Returns None if unavailable."""
+    client = _openai_client()
+    if not client:
+        return None
+
+    word_target = (
+        "around 150–250 words" if length == "Short"
+        else "around 350–500 words" if length == "Medium"
+        else "around 600–900 words"
+    )
+    if word_range:
+        word_target = f"between {word_range[0]} and {word_range[1]} words"
+
+    principle_lines = ""
+    for i, p in enumerate(principles, 1):
+        title_text = str(p.get("title", "")).strip()
+        details = [str(d).strip() for d in p.get("details", []) if str(d).strip()]
+        principle_lines += f"\nSection {i}: {title_text or f'Principle {i}'}"
+        for d in details:
+            principle_lines += f"\n  - {d}"
+
+    tone_map = {
+        "Professional": "authoritative and clear; no jargon, just confident expertise",
+        "Friendly": "warm, conversational, and approachable",
+        "Confident": "direct, decisive, and momentum-building",
+        "Educational": "explanatory and step-by-step; teach as you lead",
+    }
+    tone_desc = tone_map.get(tone, "clear and practical")
+
+    system_prompt = (
+        "You are an expert financial advisor content writer. "
+        "You produce high-quality blog articles that explain real financial or economic concepts clearly, "
+        "grounded in specific mechanisms, indicators, and practical implications — not generic filler. "
+        "Every section should include concrete examples, named indicators, or real mechanisms where possible. "
+        "Write in Markdown with clear ## headings."
+    )
+    user_prompt = f"""Write a blog OUTLINE — a structured draft with headings and bullet-point details — on the following brief:
+
+Topic: {topic}
+Audience: {audience}
+Objective: {objective}
+Tone: {tone_desc}
+Length target: {word_target}
+Call to action: {cta}
+
+Use these sections as the backbone (expand them with real substance):{principle_lines}
+
+Guidelines:
+- Open with a compelling intro that names the topic and why it matters RIGHT NOW for this audience.
+- Each section must explain the real mechanism or concept, not generic advice. Where relevant, name specific indicators, models, or frameworks.
+- Use ## for section headings, bullet points for detail lines under each heading.
+- Close with a concrete takeaway and the call to action.
+- Do NOT produce filler prose like "this section will help you" — every sentence must carry real information or a specific action.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.7,
+            max_tokens=1800,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return None
+
+
 def build_blog_draft(
+    topic: str,
+    audience: str,
+    objective: str,
+    tone: str,
+    length: str,
+    principles: list[dict[str, object]],
+    cta: str,
+    word_range: tuple[int, int] | None = None,
+) -> str:
+    llm_result = _build_blog_draft_llm(topic, audience, objective, tone, length, principles, cta, word_range)
+    if llm_result:
+        return llm_result
+    return _build_blog_draft_template(topic, audience, objective, tone, length, principles, cta, word_range)
+
+
+def _build_blog_draft_template(
     topic: str,
     audience: str,
     objective: str,
@@ -2300,6 +2428,91 @@ def build_blog_draft(
     return draft_text
 
 
+def _build_final_blog_llm(
+    outline_text: str,
+    topic: str,
+    audience: str,
+    objective: str,
+    tone: str,
+    cta: str,
+    word_range: tuple[int, int] | None = None,
+    polish_level: str = "Strong",
+    style_examples: list[str] | None = None,
+    style_example_names: list[str] | None = None,
+) -> str | None:
+    """Generate a polished final blog post using OpenAI. Returns None if unavailable."""
+    client = _openai_client()
+    if not client:
+        return None
+
+    word_target = (
+        "250–400 words" if polish_level == "Standard"
+        else "400–650 words" if polish_level == "Strong"
+        else "650–900 words"
+    )
+    if word_range:
+        word_target = f"{word_range[0]}–{word_range[1]} words"
+
+    tone_map = {
+        "Professional": "authoritative and clear",
+        "Friendly": "warm and conversational",
+        "Confident": "direct and decisive",
+        "Educational": "explanatory, step-by-step",
+    }
+    tone_desc = tone_map.get(tone, "clear and practical")
+
+    style_block = ""
+    if style_examples:
+        names = style_example_names or []
+        style_block = "\n\nHere are writing style examples to match (mirror their sentence rhythm, vocabulary, and depth -- not their content):\n"
+        for i, ex in enumerate(style_examples[:3]):
+            label = names[i] if i < len(names) else f"Example {i+1}"
+            style_block += f"\n--- {label} ---\n{ex[:600]}\n"
+
+    system_prompt = (
+        "You are an elite financial advisor content writer. "
+        "You turn structured outlines into polished, substantive blog articles. "
+        "Every paragraph must carry real insight: name specific indicators, mechanisms, frameworks, or historical patterns. "
+        "Eliminate all filler language. Write in Markdown. "
+        "The result should read like the best content from a top RIA or asset manager, not a generic personal-finance blog."
+    )
+    user_prompt = f"""Turn the outline below into a fully polished blog article:
+
+Topic: {topic}
+Audience: {audience}
+Objective: {objective}
+Tone: {tone_desc}
+Length: {word_target}
+Call to action: {cta}
+Polish level: {polish_level}{style_block}
+
+OUTLINE:
+{outline_text}
+
+Requirements:
+- Write the FULL article, not bullet points.
+- Keep every ## heading from the outline.
+- Each section must explain the REAL mechanism, model, or indicator — not restate the heading in longer words.
+- Where the outline names a framework or indicator, explain how it works and what it signals.
+- Conclude with a concrete summary and embed the call to action naturally.
+- Do NOT add any filler like "In this post we will explore" — start strong and stay substantive throughout.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.65,
+            max_tokens=2200,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return None
+
+
 def build_final_blog_post_from_outline(
     outline_text: str,
     topic: str,
@@ -2314,6 +2527,23 @@ def build_final_blog_post_from_outline(
     style_strength: str = "Balanced",
     style_example_names: list[str] | None = None,
 ) -> str:
+    llm_result = _build_final_blog_llm(
+        outline_text=outline_text,
+        topic=topic,
+        audience=audience,
+        objective=objective,
+        tone=tone,
+        cta=cta,
+        word_range=word_range,
+        polish_level=polish_level,
+        style_examples=style_examples,
+        style_example_names=style_example_names,
+    )
+    if llm_result:
+        if word_range:
+            llm_result = fit_text_to_word_range(llm_result, word_range[0], word_range[1])
+        return llm_result
+
     def detail_to_sentence(detail: str, tone_value: str, detail_index: int) -> str:
         d = detail.strip().lower().rstrip(".?!")
         if not d:
@@ -3154,6 +3384,27 @@ def render_blog_page(source_sales: pd.DataFrame, is_manager: bool) -> None:
     if not is_authorized:
         st.info("Authorization is required before creating or preparing outreach campaigns.")
         return
+
+    # ── OpenAI API key configuration ──────────────────────────────────────────
+    with st.expander("AI Model Settings (OpenAI)", expanded=not bool(_get_openai_key())):
+        if not _OPENAI_AVAILABLE:
+            st.warning("The `openai` package is not installed. Run `pip install openai` and restart the app to enable AI blog generation.")
+        else:
+            existing_key = _get_openai_key() or ""
+            masked = f"...{existing_key[-6:]}" if len(existing_key) > 6 else ("Configured via environment" if existing_key else "")
+            if masked:
+                st.success(f"OpenAI API key active ({masked}). AI blog generation is enabled.")
+            else:
+                st.info("Enter your OpenAI API key below to enable AI-powered blog drafts. The key is stored only in your browser session.")
+            typed_key = st.text_input(
+                "OpenAI API key",
+                type="password",
+                placeholder="sk-...",
+                help="Get your key at platform.openai.com. It is used only for blog generation and never stored to disk.",
+                key="openai_api_key",
+            )
+            if typed_key:
+                st.success("Key saved for this session.")
 
     st.caption("Recipient targeting is based on the full Sales Activity dataset and filtered by your selected Partner or Team Member identity.")
 
