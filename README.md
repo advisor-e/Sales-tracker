@@ -104,3 +104,38 @@ Example PowerShell session before launch:
 $env:SALES_TRACKER_MANAGER_PASSWORD = "your-secure-password"
 streamlit run app.py
 ```
+
+## Contributing
+
+1. Create a feature branch from `main`.
+2. Install dependencies with `pip install -r requirements.txt`.
+3. Run quick checks before opening a pull request:
+
+```powershell
+python test_imports.py
+python -m py_compile app.py launcher.py test_imports.py
+```
+
+4. Open a pull request to `main` with a short summary of changes and testing.
+
+## GitHub CI
+
+This repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`.
+
+It runs on pushes and pull requests to `main` and performs:
+
+- dependency installation from `requirements.txt`
+- import validation via `test_imports.py`
+- Python syntax compilation checks
+
+## Branch Protection (Recommended)
+
+Set branch protection for `main` in GitHub:
+
+1. Open repository settings.
+2. Go to Branches -> Add branch protection rule.
+3. Choose `main`.
+4. Enable:
+  - Require a pull request before merging
+  - Require status checks to pass before merging (`CI`)
+  - Optional: require linear history and prevent force pushes
