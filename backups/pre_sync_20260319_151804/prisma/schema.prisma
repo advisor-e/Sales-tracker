@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum BlogPostKind {
+  draft
+  final
+}
+
+model BlogInput {
+  id                Int      @id @default(autoincrement())
+  signature         String   @db.VarChar(191)
+  topic             String   @db.VarChar(255)
+  audience          String   @db.VarChar(255)
+  objective         String   @db.VarChar(255)
+  tone              String   @db.VarChar(80)
+  length            String   @db.VarChar(80)
+  cta               String   @db.VarChar(255)
+  principlesJson    Json
+  selectedPerson    String?  @db.VarChar(255)
+  targetMode        String?  @db.VarChar(120)
+  styleStrength     String?  @db.VarChar(40)
+  styleTitlesJson   Json?
+  lengthRangesJson  Json?
+  styleThresholdsJson Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([signature])
+  @@index([updatedAt])
+}
+
+model BlogPost {
+  id             Int          @id @default(autoincrement())
+  kind           BlogPostKind
+  title          String       @db.VarChar(255)
+  topic          String       @db.VarChar(255)
+  audience       String       @db.VarChar(255)
+  objective      String       @db.VarChar(255)
+  tone           String       @db.VarChar(80)
+  length         String       @db.VarChar(80)
+  cta            String       @db.VarChar(255)
+  selectedPerson String?      @db.VarChar(255)
+  targetMode     String?      @db.VarChar(120)
+  outlineText    String       @db.LongText
+  finalText      String?      @db.LongText
+  isPinned       Boolean      @default(false)
+  metadataJson   Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([kind, updatedAt])
+  @@index([isPinned, updatedAt])
+}
+
+model PipelineEntry {
+  id               Int      @id @default(autoincrement())
+  prospectName     String   @db.VarChar(255)
+  businessName     String?  @db.VarChar(255)
+  partner          String?  @db.VarChar(255)
+  leadStaff        String?  @db.VarChar(255)
+  prospectStatus   String   @db.VarChar(80)
+  relationshipType String?  @db.VarChar(80)
+  prospectSource   String?  @db.VarChar(120)
+  approachStyle    String?  @db.VarChar(120)
+  approachDate     DateTime?
+  secureMeeting    Boolean  @default(false)
+  proposalSent     Boolean  @default(false)
+  proposalValue    Decimal  @default(0) @db.Decimal(14, 2)
+  jobSecured       Boolean  @default(false)
+  jobSecuredValue  Decimal  @default(0) @db.Decimal(14, 2)
+  comments         String?  @db.LongText
+  coiInvolved      String?  @db.VarChar(255)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([prospectStatus, updatedAt])
+  @@index([leadStaff, updatedAt])
+  @@index([partner, updatedAt])
+}
+
+model CoiEntry {
+  id                      Int      @id @default(autoincrement())
+  coiName                 String   @db.VarChar(255)
+  email                   String?  @db.VarChar(255)
+  cell                    String?  @db.VarChar(80)
+  entity                  String?  @db.VarChar(255)
+  position                String?  @db.VarChar(255)
+  industry                String?  @db.VarChar(120)
+  leadRelationshipPartner String?  @db.VarChar(255)
+  relationshipSupport     String?  @db.VarChar(255)
+  couldWe                 Boolean  @default(false)
+  howWouldWe              Boolean  @default(false)
+  willWe                  Boolean  @default(false)
+  testReview              Boolean  @default(false)
+  totalReferrals          Int      @default(0)
+  totalConverted          Int      @default(0)
+  feeValue                Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([industry, updatedAt])
+  @@index([leadRelationshipPartner, updatedAt])
+}
